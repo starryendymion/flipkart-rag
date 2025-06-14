@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""
+Flipkart Product Description Generator and RAG System
+Main application entry point for Docker container
+"""
+
+import os
+import sys
+import argparse
+import torch
+from pathlib import Path
+
+# Import our modules
+from flipkart_generator import FlipkartDescriptionGenerator, main as generator_main
+from vector_rag_system import build_vector_database, start_rag_system, ProductVectorDB, ProductRAGSystem
+
+def check_gpu():
+    """Check GPU availability and display info"""
+    print("🔍 GPU Information:")
+    if torch.cuda.is_available():
+        print(f"   ✅ CUDA Available: {torch.cuda.is_available()}")
+        print(f"   🎮 GPU Count: {torch.cuda.device_count()}")
+        for i in range(torch.cuda.device_count()):
+            print(f"   📱 GPU {i}: {torch.cuda.get_device_name(i)}")
+            print(f"   💾 Memory: {torch.cuda.get_device_properties(i).total_memory / 1024**3:.1f} GB")
+    else:
+        print("   ❌ CUDA not available, using CPU")
+    print("-" * 60)
+
+def setup_directories():
+    """Create necessary directories"""
+    directories = [
+        "data",
+        "output", 
+        "vector_db",
+        "models"
+    ]
+    
+    for directory in directories:
+        Path(directory).mkdir(exist_ok=True)
+        print(f"📁 Created directory: {directory}")
+
+def main():
+    """Main application entry point"""
+    print("🚀 Flipkart Product Description Generator & RAG System")
+    print("=" * 60)
+    
+    # Check GPU
+    check_gpu()
+    
+    # Setup directories
+    setup_directories()
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Flipkart Product Description Generator & RAG System")
+    parser.add_argument("--mode", choices=["generate", "build-db", "rag", "interactive"], 
+                       default="interactive", help="Operation mode")
+    parser.add_argument("--input-csv", type=str, default="data/flipkart_products.csv",
+                       help="Input CSV file path")
+    parser.add_argument("--output-csv", type=str, default="output/enhanced_products.csv",
+                       help="Output CSV file path")
+    parser.add_argument("--vector-db-path", type=str, default="vector_db",
+                       help="Vector database directory path")
+    parser.add_argument("--max-items", type=int, default=None,
+                       help="Maximum items to process (None for all)")
+    parser.add_argument("--batch-size", type=int, default=32,
+                       help="Batch size for processing")
+    
+    args = parser.parse_args()
+    
+    try:
+        if args.mode == "generate":
+            print("🎯 Mode: Generate Product Descriptions")
+            generate_descriptions(args)
+            
+        elif args.mode == "build-db":
+            print("🎯 Mode: Build Vector Database")
+            build_vector_db(args)
+            
+        elif args.mode == "rag":
+            print("🎯 Mode: RAG System")
+            run_rag_system(args)
+            
+        elif args.mode == "interactive":
+            print("🎯 Mode: Interactive Menu")
+            interactive_menu(args)
+            
+    except KeyboardInterrupt:
+        print("\n👋 Operation cancelled by user")
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
+
+def generate_descriptions(args):
+    """Generate enhanced product descriptions"""
+    print(f"📥 Input CSV: {args.input_csv}")
+    print(f"📤 Output CSV: {args.output_csv}")
+    
+    if not os.path.exists(args.input_csv):
+        print(f"❌ Input file not found: {args.input_csv}")
+        print("Please place your Flipkart CSV file in the data/ directory")
+        return
+    
+    # Initialize and run generator
+    generator = FlipkartDescriptionGenerator(
+        input_csv_path=args.input_csv,
+        output_csv_path=args.output_csv
+    )
+    
+    generator.process_products(max_items=args.max_items)
+    
+    # Create the 3-column final CSV
+    final_csv = args.output_csv.replace('.csv', '_final.csv')
+    print(f"📋 Final 3-column CSV created: {final_csv}")
+
+def build_vector_db(args):
+    """Build vector database from generated descriptions"""
+    final_csv = args.output_csv.replace('.csv', '_final.csv')
+    
+    if not os.path.exists(final_csv):
+        print(f"❌ Final CSV not found: {final_csv}")
+        print("Please run description generation first!")
+        return
+    
+    print(f"📊 Building vector database from: {final_csv}")
+    vector_db = build_vector_database(final_csv, args.vector_db_path)
+    
+    if vector_db:
+        print("✅ Vector database built successfully!")
+    else:
+        print("❌ Failed to build vector database")
+
+def run_rag_system(args):
+    """Run RAG system for querying"""
+    if not os.path.exists(args.vector_db_path):
+        print(f"❌ Vector database not found: {args.vector_db_path}")
+        print("Please build the vector database first!")
+        return
+    
+    print("🤖 Starting RAG System...")
+    rag_system = start_rag_system(args.vector_db_path)
+    
+    if not rag_system:
+        print("❌ Failed to start RAG system")
+
+def interactive_menu(args):
+    """Interactive menu for choosing operations"""
+    while True:
+        print("\n" + "=" * 60)
+        print("🎮 INTERACTIVE MENU")
+        print("=" * 60)
+        print("1. 📝 Generate Product Descriptions")
+        print("2. 🏗️  Build Vector Database") 
+        print("3. 🤖 Start RAG System")
+        print("4. 🔄 Full Pipeline (Generate → Build DB → RAG)")
+        print("5. ℹ️  System Information")
+        print("6. 🚪 Exit")
+        print("-" * 60)
+        
+        try:
+            choice = input("👆 Choose an option (1-6): ").strip()
+            
+            if choice == "1":
+                # Check if input file exists
+                if not os.path.exists(args.input_csv):
+                    print(f"\n❌ Input file not found: {args.input_csv}")
+                    custom_path = input("Enter path to your Flipkart CSV file: ").strip()
+                    if custom_path and os.path.exists(custom_path):
+                        args.input_csv = custom_path
+                    else:
+                        print("❌ Invalid file path!")
+                        continue
+                
+                generate_descriptions(args)
+                
+            elif choice == "2":
+                build_vector_db(args)
+                
+            elif choice == "3":
+                run_rag_system(args)
+                
+            elif choice == "4":
+                # Full pipeline
+                print("🔄 Running Full Pipeline...")
+                print("\n1️⃣ Generating descriptions...")
+                generate_descriptions(args)
+                
+                print("\n2️⃣ Building vector database...")
+                build_vector_db(args)
+                
+                print("\n3️⃣ Starting RAG system...")
+                run_rag_system(args)
+                
+            elif choice == "5":
+                # System info
+                print("\n" + "=" * 40)
+                print("💻 SYSTEM INFORMATION")
+                print("=" * 40)
+                check_gpu()
+                print(f"🐍 Python: {sys.version}")
+                print(f"🔥 PyTorch: {torch.__version__}")
+                print(f"📂 Working Directory: {os.getcwd()}")
+                print(f"📁 Input CSV: {args.input_csv}")
+                print(f"📁 Output CSV: {args.output_csv}")
+                print(f"📁 Vector DB: {args.vector_db_path}")
+                
+            elif choice == "6":
+                print("👋 Goodbye!")
+                break
+                
+            else:
+                print("❌ Invalid choice! Please select 1-6.")
+                
+        except KeyboardInterrupt:
+            print("\n👋 Goodbye!")
+            break
+        except Exception as e:
+            print(f"❌ Error: {e}")
+
+if __name__ == "__main__":
+    main()

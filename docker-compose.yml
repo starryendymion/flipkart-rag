@@ -1,0 +1,66 @@
+-version: '3.8'
+
+services:
+  flipkart-rag:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: flipkart-product-rag
+    
+    # GPU support
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    
+    # Volume mounts for data persistence
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+      - ./vector_db:/app/vector_db
+      - ./models:/app/models
+    
+    # Interactive mode
+    stdin_open: true
+    tty: true
+    
+    # Resource limits
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    
+    # Port mapping (for potential web interface)
+    ports:
+      - "8000:8000"
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import torch; print('Health check passed') if torch.cuda.is_available() else exit(1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Optional: Add a web interface service
+  # web-interface:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.web
+  #   container_name: flipkart-web
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - flipkart-rag
+  #   volumes:
+  #     - ./output:/app/output:ro
+
+networks:
+  default:
+    name: flipkart-network
